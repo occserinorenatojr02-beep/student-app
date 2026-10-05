@@ -20,6 +20,7 @@ import { Profile, initials, setProfile, useProfile } from "./../lib/profileStore
 const BLUE = "#2563EB";
 const INK = "#1E1B3A";
 const MUTED = "#6B7280";
+const TAB_BAR_HEIGHT = 100; // adjust to match your tab bar height
 
 // Matches the shape returned by GET /students
 type Student = {
@@ -180,7 +181,7 @@ export default function ProfileScreen() {
     : [];
 
   return (
-    <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
       <Stack.Screen options={{ headerShown: false }} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         {/* Top bar */}
@@ -198,7 +199,11 @@ export default function ProfileScreen() {
             <Text style={styles.centerText}>Loading profile...</Text>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + 24 }]}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
             {/* Notice when the backend data could not be used */}
             {error ? (
               <View style={styles.notice}>
@@ -220,7 +225,14 @@ export default function ProfileScreen() {
             {/* Main details */}
             <View style={styles.card}>
               {fields.map((f, i) => (
-                <View key={f.key} style={[styles.field, i < fields.length - 1 && !editing && styles.divider]}>
+                <View
+                  key={f.key}
+                  style={[
+                    styles.field,
+                    editing && styles.fieldEdit,
+                    i < fields.length - 1 && !editing && styles.divider,
+                  ]}
+                >
                   <Text style={styles.fieldLabel}>{f.label}</Text>
                   {editing && f.key !== "studentId" ? (
                     <TextInput
@@ -294,10 +306,21 @@ const styles = StyleSheet.create({
 
   card: { backgroundColor: "#FFF", borderRadius: 22, paddingHorizontal: 18, paddingVertical: 6, elevation: 2, shadowColor: "#2563EB", shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 6 } },
   field: { paddingVertical: 14 },
+  fieldEdit: { paddingVertical: 8 },
   divider: { borderBottomWidth: 1, borderBottomColor: "#EEF2F7" },
-  fieldLabel: { fontSize: 12, fontWeight: "700", color: MUTED, marginBottom: 6 },
+  fieldLabel: { fontSize: 12, fontWeight: "700", color: MUTED, marginBottom: 4 },
   fieldValue: { fontSize: 16, fontWeight: "600", color: INK },
-  input: { borderWidth: 1.5, borderColor: "#DBEAFE", backgroundColor: "#F8FAFF", borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: INK },
+  input: {
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    backgroundColor: "#F8FAFF",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    fontSize: 14,
+    color: INK,
+    height: 38,
+  },
 
   actions: { flexDirection: "row", gap: 10, marginTop: 16 },
   btn: { flex: 1, paddingVertical: 15, borderRadius: 16, alignItems: "center" },

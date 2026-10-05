@@ -95,7 +95,7 @@ export default function Home() {
 
         {/* Continue learning */}
         <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Continue Learning</Text>
+          <Text style={styles.sectionTitle}>Courses</Text>
           <Link href="/courses" asChild>
             <TouchableOpacity style={styles.seeAll}>
               <Text style={styles.seeAllText}>See All</Text>
