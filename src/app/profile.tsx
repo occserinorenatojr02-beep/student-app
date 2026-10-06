@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,101 +16,121 @@ import { Stack, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import api from "../services/api";
-import { Profile, initials, setProfile, useProfile } from "./../lib/profileStore";
+import { initials, setProfile, useProfile } from "../lib/profileStore";
+import type { Profile } from "../lib/profileStore";
 
 const BLUE = "#2563EB";
 const INK = "#1E1B3A";
 const MUTED = "#6B7280";
 const TAB_BAR_HEIGHT = 100; // adjust to match your tab bar height
 
-// Matches the shape returned by GET /students
-type Student = {
+// Matches the shape returned by GET /admin
+type Admin = {
   id: number;
-  student_number: string;
+  admin_number: string;
   name: string;
-  course: string;
-  year_level: number;
-  section: string;
+  role: string;
+  office: string;
   email: string;
   phone: string;
   status: string;
-  gender: string;
-  birth_date: string;
-  address: string;
-  guardian: string;
-  guardian_phone: string;
+  access: string[]; // e.g. ["students", "grades", "schedules"]
 };
 
-const fields: { key: keyof Profile; label: string; keyboard?: "email-address" }[] = [
-  { key: "name", label: "Full name" },
-  { key: "studentId", label: "Student ID" },
-  { key: "program", label: "Program" },
-  { key: "year", label: "Year level" },
-  { key: "email", label: "Email", keyboard: "email-address" },
+// The profile store keeps the same 5 fields, so the admin is mapped onto them:
+//   studentId -> admin_number, program -> office, year -> role
+const fields: {
+  key: keyof Profile;
+  label: string;
+  editable: boolean;
+  keyboard?: "email-address";
+}[] = [
+  { key: "name", label: "Full name", editable: true },
+  { key: "studentId", label: "Admin ID", editable: false },
+  { key: "program", label: "Office", editable: true },
+  { key: "year", label: "Role", editable: false },
+  { key: "email", label: "Email", editable: true, keyboard: "email-address" },
 ];
 
-// "Juan Dela Cruz" and "juan delacruz" both become "juandelacruz"
-const norm = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-
-const ordinal = (n: number) => {
-  const suffix = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return `${n}${suffix[(v - 20) % 10] || suffix[v] || suffix[0]} Year`;
+// Accepts either the admin object, a { data: {...} } wrapper or a list (first admin)
+const toAdmin = (value: any): Admin | null => {
+  const item = Array.isArray(value) ? value[0] : value?.data ?? value;
+  return item && item.id != null ? (item as Admin) : null;
 };
+
+// "students" -> "Students"
+const label = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function ProfileScreen() {
   const router = useRouter();
   const profile = useProfile();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Profile>(profile);
-  const [student, setStudent] = useState<Student | null>(null);
+  const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Load the student from the backend and copy it into the profile store
+  // Always-current copies, so async code never works with stale values
+  const mounted = useRef(true);
+  const profileRef = useRef(profile);
+  const editingRef = useRef(editing);
+  profileRef.current = profile;
+  editingRef.current = editing;
+
   useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      try {
-        const res = await api.get<Student[]>("/students");
-        if (!active) return;
-
-        const list = Array.isArray(res.data) ? res.data : [];
-        const found =
-          list.find((s) => norm(s.student_number) === norm(profile.studentId)) ??
-          list.find((s) => norm(s.name) === norm(profile.name)) ??
-          null;
-
-        if (found) {
-          setStudent(found);
-          const synced: Profile = {
-            ...profile,
-            name: found.name,
-            studentId: found.student_number,
-            program: found.course,
-            year: ordinal(found.year_level),
-            email: found.email,
-          };
-          setProfile(synced);
-          setDraft(synced);
-        }
-      } catch (e) {
-        console.log("PROFILE ERROR:", e);
-        if (active) setError(true);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-
-    load();
+    mounted.current = true;
     return () => {
-      active = false;
+      mounted.current = false;
     };
-    // Run once when the screen opens
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Load the admin from the backend and copy it into the profile store
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get("/admin");
+      if (!mounted.current) return;
+
+      const found = toAdmin(res.data);
+
+      setError(false);
+      setAdmin(found);
+
+      if (found) {
+        const synced: Profile = {
+          ...profileRef.current,
+          name: found.name,
+          studentId: found.admin_number,
+          program: found.office,
+          year: found.role,
+          email: found.email,
+        };
+        setProfile(synced);
+        // Never overwrite what the user is typing
+        if (!editingRef.current) setDraft(synced);
+      }
+    } catch (e) {
+      console.log("ADMIN PROFILE ERROR:", e);
+      if (mounted.current) setError(true);
+    } finally {
+      if (mounted.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, []);
+
+  // Run once when the screen opens
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const onRefresh = () => {
+    if (editing) return; // don't reload while the user is editing
+    setRefreshing(true);
+    load();
+  };
 
   const goBack = () => (router.canGoBack() ? router.back() : router.replace("/"));
 
@@ -126,8 +147,8 @@ export default function ProfileScreen() {
   const save = async () => {
     const name = draft.name.trim() || profile.name;
 
-    // No matching student on the server: keep the change on the device only
-    if (!student) {
+    // Admin not loaded from the server: keep the change on the device only
+    if (!admin) {
       setProfile({ ...draft, name });
       setEditing(false);
       return;
@@ -135,50 +156,52 @@ export default function ProfileScreen() {
 
     setSaving(true);
     try {
-      const res = await api.put<Student>(`/students/${student.id}`, {
+      const res = await api.put<Admin>(`/admins/${admin.id}`, {
         name,
         email: draft.email.trim(),
-        course: draft.program.trim(),
-        year_level: parseInt(draft.year, 10) || student.year_level,
+        office: draft.program.trim(),
       });
 
+      if (!mounted.current) return;
+
       const updated = res.data;
-      setStudent(updated);
+      setAdmin(updated);
       setProfile({
         ...profile,
         name: updated.name,
-        studentId: updated.student_number,
-        program: updated.course,
-        year: ordinal(updated.year_level),
+        studentId: updated.admin_number,
+        program: updated.office,
+        year: updated.role,
         email: updated.email,
       });
       setEditing(false);
     } catch (e: any) {
-      console.log("PROFILE SAVE ERROR:", e?.response?.data ?? e);
-      const firstError = e?.response?.data?.errors
-        ? (Object.values(e.response.data.errors)[0] as string[])[0]
-        : null;
-      Alert.alert("Save failed", firstError || "Unable to save your profile. Please try again.");
+      console.log("ADMIN SAVE ERROR:", e?.response?.data ?? e);
+
+      const data = e?.response?.data;
+      const firstError = data?.errors ? (Object.values(data.errors)[0] as string[])[0] : null;
+      const offline = e?.request && !e?.response ? "Cannot reach the server. Check your connection." : null;
+
+      Alert.alert(
+        "Save failed",
+        firstError || data?.message || offline || "Unable to save your profile. Please try again."
+      );
     } finally {
-      setSaving(false);
+      if (mounted.current) setSaving(false);
     }
   };
 
   const shown = editing ? draft : profile;
 
   // Extra details that only exist on the backend (read-only)
-  const details: { label: string; value?: string }[] = student
+  const details: { label: string; value?: string }[] = admin
     ? [
-        { label: "Section", value: student.section },
-        { label: "Status", value: student.status },
-        { label: "Gender", value: student.gender },
-        { label: "Birth date", value: student.birth_date },
-        { label: "Phone", value: student.phone },
-        { label: "Address", value: student.address },
-        { label: "Guardian", value: student.guardian },
-        { label: "Guardian phone", value: student.guardian_phone },
+        { label: "Status", value: admin.status },
+        { label: "Phone", value: admin.phone },
       ]
     : [];
+
+  const access = admin?.access ?? [];
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -203,15 +226,20 @@ export default function ProfileScreen() {
             contentContainerStyle={[styles.content, { paddingBottom: TAB_BAR_HEIGHT + 24 }]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[BLUE]} />
+            }
           >
             {/* Notice when the backend data could not be used */}
             {error ? (
               <View style={styles.notice}>
-                <Text style={styles.noticeText}>Unable to reach the server. Showing saved profile.</Text>
+                <Text style={styles.noticeText}>
+                  Unable to reach the server. Showing saved profile. Pull down to retry.
+                </Text>
               </View>
-            ) : !student ? (
+            ) : !admin ? (
               <View style={styles.notice}>
-                <Text style={styles.noticeText}>No matching student found in the records.</Text>
+                <Text style={styles.noticeText}>No admin record found on the server.</Text>
               </View>
             ) : null}
 
@@ -219,7 +247,7 @@ export default function ProfileScreen() {
             <View style={styles.identity}>
               <View style={styles.avatar}><Text style={styles.avatarText}>{initials(shown.name)}</Text></View>
               <Text style={styles.name}>{shown.name || "Your name"}</Text>
-              <Text style={styles.program}>{shown.program || "Program"}</Text>
+              <Text style={styles.program}>{shown.year || "Role"}</Text>
             </View>
 
             {/* Main details */}
@@ -234,7 +262,7 @@ export default function ProfileScreen() {
                   ]}
                 >
                   <Text style={styles.fieldLabel}>{f.label}</Text>
-                  {editing && f.key !== "studentId" ? (
+                  {editing && f.editable ? (
                     <TextInput
                       style={styles.input}
                       value={draft[f.key]}
@@ -260,6 +288,22 @@ export default function ProfileScreen() {
                     <Text style={styles.fieldValue}>{d.value || "—"}</Text>
                   </View>
                 ))}
+              </View>
+            )}
+
+            {/* What this admin can access */}
+            {!editing && access.length > 0 && (
+              <View style={[styles.card, { marginTop: 14 }]}>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>Access</Text>
+                  <View style={styles.accessWrap}>
+                    {access.map((a) => (
+                      <View key={a} style={styles.chip}>
+                        <Text style={styles.chipText}>{label(a)}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
               </View>
             )}
 
@@ -321,6 +365,10 @@ const styles = StyleSheet.create({
     color: INK,
     height: 38,
   },
+
+  accessWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
+  chip: { backgroundColor: "#DBEAFE", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6 },
+  chipText: { color: "#1D4ED8", fontWeight: "800", fontSize: 12 },
 
   actions: { flexDirection: "row", gap: 10, marginTop: 16 },
   btn: { flex: 1, paddingVertical: 15, borderRadius: 16, alignItems: "center" },

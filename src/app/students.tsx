@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
+import axios from "axios";
 import api from "../services/api";
 import LoadingScreen from "../components/LoadingScreen";
-import axios from "axios";
 
 type Student = {
   id: number; student_number: string; name: string; course: string; year_level: number;
@@ -12,25 +12,58 @@ type Student = {
   birth_date: string; address: string; guardian: string; guardian_phone: string;
 };
 
+// Turns any request failure into a short, readable message
+const getErrorMessage = (error: unknown): string => {
+  if (axios.isAxiosError(error)) {
+    if (error.response) return `Server error (${error.response.status}). Please try again.`;
+    if (error.request) return "Cannot reach the server. Check your connection and the API address.";
+  }
+  return "Something went wrong while loading students.";
+};
+
 export default function Students() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadStudents = async () => {
+  // Prevents state updates if the screen is closed while a request is running
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  const loadStudents = useCallback(async () => {
     try {
-      const response = await api.get<Student[]>("/students");
-      setStudents(response.data);
-    } catch (error) {
-      console.log("STUDENTS ERROR:", error);
-      setStudents([]);
+      const response = await api.get("/students");
+
+      // Accept either a plain array or a { data: [...] } wrapper
+      const list: Student[] = Array.isArray(response.data)
+        ? response.data
+        : response.data?.data ?? [];
+
+      if (!mounted.current) return;
+      setStudents(list);
+      setError(null);
+    } catch (err) {
+      console.log("STUDENTS ERROR:", err);
+      if (!mounted.current) return;
+      // Keep the old list on a failed refresh, only show the error message
+      setError(getErrorMessage(err));
     } finally {
+      if (!mounted.current) return;
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { loadStudents(); }, []);
+  useEffect(() => { loadStudents(); }, [loadStudents]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadStudents();
+  };
 
   if (loading) return <LoadingScreen message="Loading student directory..." />;
 
@@ -41,7 +74,7 @@ export default function Students() {
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadStudents(); }} colors={["#2563EB"]} />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#2563EB"]} />
         }
         ListHeaderComponent={
           <View style={styles.header}>
@@ -58,8 +91,10 @@ export default function Students() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyIcon}>👨‍🎓</Text>
-            <Text style={styles.emptyTitle}>No Students Found</Text>
-            <Text style={styles.emptyText}>There are currently no students available.</Text>
+            <Text style={styles.emptyTitle}>{error ? "Unable to Load Students" : "No Students Found"}</Text>
+            <Text style={styles.emptyText}>
+              {error ? `${error}\nPull down to try again.` : "There are currently no students available."}
+            </Text>
           </View>
         }
         renderItem={({ item }) => (

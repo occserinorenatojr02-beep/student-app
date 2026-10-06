@@ -39,7 +39,6 @@ const services: {
 
 
 
-/* ---------------- Screen ---------------- */
 
 export default function Home() {
   const profile = useProfile();
@@ -48,7 +47,7 @@ export default function Home() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Header */}
+               {/* Header */}
         <View style={styles.header}>
           <Link href="/profile" asChild>
             <TouchableOpacity activeOpacity={0.8}>
@@ -58,7 +57,7 @@ export default function Home() {
             </TouchableOpacity>
           </Link>
           <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={styles.hello}>Hello, {firstName}</Text>
+            <Text style={styles.hello}>Hello, Admin</Text>
             <Text style={styles.sub}>Keep learning, keep growing 🌟</Text>
           </View>
           <Link href="/announcements" asChild>
@@ -68,7 +67,6 @@ export default function Home() {
             </TouchableOpacity>
           </Link>
         </View>
-
         {/* Hero card */}
         <LinearGradient
           colors={["#1E40AF", "#2563EB", "#38BDF8"]}
