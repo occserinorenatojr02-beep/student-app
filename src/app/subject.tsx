@@ -1,61 +1,225 @@
-import { useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import api from "../services/api";
+import LoadingScreen from "../components/LoadingScreen";
+
+/* ------------------------------------------------------------------ */
+/* Types                                                               */
+/* ------------------------------------------------------------------ */
 
 type Grad = readonly [string, string];
-type Semester = "All" | "1st Sem" | "2nd Sem";
 
+// GET /courses
+type Course = {
+  id: number;
+  code: string;
+  name: string;
+  units?: number;
+  prerequisite?: string;
+  description?: string;
+  program_code?: string;
+};
+
+// GET /programs
+type Program = {
+  id: number;
+  code: string;
+  name: string;
+};
+
+// GET /schedules
+type Schedule = {
+  id: number;
+  program_code?: string;
+  schedule_type?: string;
+  code?: string;
+  subject?: string;
+  instructor?: string;
+  day?: string;
+  time?: string;
+  room?: string;
+};
+
+// What one subject card needs
 type Subject = {
-  id: string;
+  id: number;
   code: string;
   title: string;
   units: number;
+  program: string;
+  prerequisite: string;
+  description: string;
   instructor: string;
-  schedule: string;
   room: string;
-  semester: Exclude<Semester, "All">;
+  schedules: string[]; // e.g. "Schedule A: Mon / Wed / Fri, 8:00 AM - 9:00 AM"
   icon: keyof typeof Ionicons.glyphMap;
   colors: Grad;
 };
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
 
 const PRIMARY = "#2563EB";
 const INK = "#0B2559";
 const MUTED = "#5B7AA8";
 const SOFT = "#DCEBFF";
 
-// Replace with your own data / API call
-const SUBJECTS: Subject[] = [
-  { id: "1", code: "IT 101", title: "Introduction to Computing", units: 3, instructor: "Prof. Santos", schedule: "Mon & Wed, 8:00 - 9:30 AM", room: "Room 201", semester: "1st Sem", icon: "laptop", colors: ["#1D4ED8", "#38BDF8"] },
-  { id: "2", code: "IT 102", title: "Computer Programming 1", units: 3, instructor: "Prof. Reyes", schedule: "Tue & Thu, 10:00 - 11:30 AM", room: "Computer Lab 1", semester: "1st Sem", icon: "code-slash", colors: ["#2563EB", "#60A5FA"] },
-  { id: "3", code: "GE 101", title: "Understanding the Self", units: 3, instructor: "Prof. Cruz", schedule: "Fri, 1:00 - 4:00 PM", room: "Room 105", semester: "1st Sem", icon: "person", colors: ["#0EA5E9", "#7DD3FC"] },
-  { id: "4", code: "MATH 101", title: "Mathematics in the Modern World", units: 3, instructor: "Prof. Garcia", schedule: "Mon & Wed, 1:00 - 2:30 PM", room: "Room 203", semester: "1st Sem", icon: "calculator", colors: ["#1E40AF", "#3B82F6"] },
-  { id: "5", code: "IT 103", title: "Computer Programming 2", units: 3, instructor: "Prof. Reyes", schedule: "Tue & Thu, 8:00 - 9:30 AM", room: "Computer Lab 2", semester: "2nd Sem", icon: "terminal", colors: ["#2563EB", "#38BDF8"] },
-  { id: "6", code: "IT 104", title: "Discrete Mathematics", units: 3, instructor: "Prof. Garcia", schedule: "Mon & Wed, 10:00 - 11:30 AM", room: "Room 204", semester: "2nd Sem", icon: "git-network", colors: ["#1D4ED8", "#60A5FA"] },
-  { id: "7", code: "GE 102", title: "Purposive Communication", units: 3, instructor: "Prof. Lim", schedule: "Fri, 8:00 - 11:00 AM", room: "Room 110", semester: "2nd Sem", icon: "chatbubbles", colors: ["#0EA5E9", "#38BDF8"] },
-  { id: "8", code: "PE 102", title: "Physical Education 2", units: 2, instructor: "Coach Ramos", schedule: "Sat, 8:00 - 10:00 AM", room: "Gymnasium", semester: "2nd Sem", icon: "fitness", colors: ["#1E40AF", "#3B82F6"] },
-];
+// Look of each course (program)
+const PROGRAM_STYLE: Record<string, { icon: keyof typeof Ionicons.glyphMap; colors: Grad }> = {
+  BSIT: { icon: "laptop", colors: ["#1D4ED8", "#38BDF8"] },
+  BSBA: { icon: "briefcase", colors: ["#0EA5E9", "#7DD3FC"] },
+  BEED: { icon: "school", colors: ["#1E40AF", "#3B82F6"] },
+};
+const DEFAULT_STYLE = { icon: "book" as keyof typeof Ionicons.glyphMap, colors: ["#2563EB", "#60A5FA"] as Grad };
 
-const SEMESTERS: Semester[] = ["All", "1st Sem", "2nd Sem"];
+// "IT 201" and "IT201" both become "it201"
+const norm = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+// Accepts either a plain array or a { data: [...] } wrapper
+const toArray = <T,>(value: any): T[] =>
+  Array.isArray(value) ? value : Array.isArray(value?.data) ? value.data : [];
+
+/* ------------------------------------------------------------------ */
+/* Screen                                                              */
+/* ------------------------------------------------------------------ */
 
 export default function Subjects() {
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(false);
+
   const [query, setQuery] = useState("");
-  const [semester, setSemester] = useState<Semester>("All");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [program, setProgram] = useState("All");
+  const [openId, setOpenId] = useState<number | null>(null);
+
+  // Ignore responses from a closed screen or an older request
+  const mounted = useRef(true);
+  const latest = useRef(0);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const loadData = useCallback(async () => {
+    const requestId = ++latest.current;
+    const isStale = () => !mounted.current || requestId !== latest.current;
+
+    try {
+      const [coursesRes, programsRes, schedulesRes] = await Promise.allSettled([
+        api.get("/courses"),
+        api.get("/programs"),
+        api.get("/schedules"),
+      ]);
+
+      // The subject list is required
+      if (coursesRes.status === "rejected") throw coursesRes.reason;
+      if (isStale()) return;
+
+      setCourses(toArray<Course>(coursesRes.value.data));
+
+      // Programs and schedules are extras: a failure is not fatal
+      setPrograms(programsRes.status === "fulfilled" ? toArray<Program>(programsRes.value.data) : []);
+      setSchedules(schedulesRes.status === "fulfilled" ? toArray<Schedule>(schedulesRes.value.data) : []);
+
+      setError(false);
+    } catch (e) {
+      // Keep the old list on a failed refresh, only flag the error
+      console.log("SUBJECTS ERROR:", e);
+      if (!isStale()) setError(true);
+    } finally {
+      if (!isStale()) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    loadData();
+  }, [loadData]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
+  };
+
+  // subject code -> its timetable lines, instructor and room (taken from /schedules)
+  const scheduleByCode = useMemo(() => {
+    const map = new Map<string, { instructor: string; room: string; lines: string[] }>();
+
+    schedules.forEach((s) => {
+      const key = norm(s.code);
+      if (!key) return;
+
+      if (!map.has(key)) {
+        map.set(key, { instructor: s.instructor || "", room: s.room || "", lines: [] });
+      }
+
+      const line = `Schedule ${s.schedule_type || "A"}: ${[s.day, s.time].filter(Boolean).join(", ")}`;
+      const entry = map.get(key)!;
+      if (!entry.lines.includes(line)) entry.lines.push(line);
+    });
+
+    map.forEach((v) => v.lines.sort());
+    return map;
+  }, [schedules]);
+
+  const subjects = useMemo<Subject[]>(() => {
+    return courses.map((c) => {
+      const prog = (c.program_code || "").toUpperCase();
+      const style = PROGRAM_STYLE[prog] ?? DEFAULT_STYLE;
+      const sched = scheduleByCode.get(norm(c.code));
+      const prereq = (c.prerequisite || "").trim();
+
+      return {
+        id: c.id,
+        code: c.code,
+        title: c.name,
+        units: typeof c.units === "number" ? c.units : 0,
+        program: prog,
+        prerequisite: prereq && prereq.toLowerCase() !== "none" ? prereq : "",
+        description: c.description || "",
+        instructor: sched?.instructor || "",
+        room: sched?.room || "",
+        schedules: sched?.lines ?? [],
+        icon: style.icon,
+        colors: style.colors,
+      };
+    });
+  }, [courses, scheduleByCode]);
+
+  // Filter chips come from /programs (falls back to the codes found in the subjects)
+  const programChips = useMemo(() => {
+    const codes = programs.length
+      ? programs.map((p) => p.code.toUpperCase())
+      : Array.from(new Set(subjects.map((s) => s.program).filter(Boolean)));
+    return ["All", ...codes];
+  }, [programs, subjects]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return SUBJECTS.filter(
+    return subjects.filter(
       (s) =>
-        (semester === "All" || s.semester === semester) &&
+        (program === "All" || s.program === program) &&
         (!q ||
           s.title.toLowerCase().includes(q) ||
           s.code.toLowerCase().includes(q) ||
           s.instructor.toLowerCase().includes(q))
     );
-  }, [query, semester]);
+  }, [subjects, query, program]);
 
   const totalUnits = filtered.reduce((sum, s) => sum + s.units, 0);
+
+  if (loading) return <LoadingScreen message="Loading subjects..." />;
 
   return (
     <View style={styles.safe}>
@@ -63,6 +227,7 @@ export default function Subjects() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[PRIMARY]} />}
       >
         {/* Summary */}
         <LinearGradient
@@ -73,7 +238,7 @@ export default function Subjects() {
         >
           <View style={styles.circleBig} />
           <View style={styles.circleSmall} />
-          <Text style={styles.heroLabel}>My Subjects</Text>
+          <Text style={styles.heroLabel}>Subjects</Text>
           <View style={styles.heroStats}>
             <View>
               <Text style={styles.heroNumber}>{filtered.length}</Text>
@@ -87,89 +252,105 @@ export default function Subjects() {
           </View>
         </LinearGradient>
 
-        {/* Search */}
-        <View style={styles.search}>
-          <Ionicons name="search" size={18} color={MUTED} />
-          <TextInput
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Search subject, code or instructor"
-            placeholderTextColor="#93A8C9"
-            style={styles.searchInput}
-          />
-          {query.length > 0 && (
-            <TouchableOpacity onPress={() => setQuery("")} hitSlop={10}>
-              <Ionicons name="close-circle" size={18} color="#93A8C9" />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Semester filter */}
-        <View style={styles.chips}>
-          {SEMESTERS.map((s) => {
-            const active = s === semester;
-            return (
-              <TouchableOpacity
-                key={s}
-                activeOpacity={0.8}
-                onPress={() => setSemester(s)}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{s}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* List */}
-        {filtered.length === 0 ? (
+        {error && subjects.length === 0 ? (
           <View style={styles.empty}>
-            <Ionicons name="book-outline" size={36} color="#93A8C9" />
-            <Text style={styles.emptyTitle}>No subjects found</Text>
-            <Text style={styles.emptyDesc}>Try a different search or semester.</Text>
+            <Ionicons name="cloud-offline-outline" size={36} color="#93A8C9" />
+            <Text style={styles.emptyTitle}>Unable to load subjects</Text>
+            <Text style={styles.emptyDesc}>Check your connection, then pull down to retry.</Text>
           </View>
         ) : (
-          filtered.map((s) => {
-            const open = openId === s.id;
-            return (
-              <TouchableOpacity
-                key={s.id}
-                activeOpacity={0.9}
-                onPress={() => setOpenId(open ? null : s.id)}
-                style={styles.card}
-              >
-                <View style={styles.cardTop}>
-                  <LinearGradient colors={s.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.icon}>
-                    <Ionicons name={s.icon} size={22} color="#FFF" />
-                  </LinearGradient>
-                  <View style={{ flex: 1, marginLeft: 14 }}>
-                    <Text style={styles.code}>{s.code}</Text>
-                    <Text style={styles.title}>{s.title}</Text>
-                  </View>
-                  <View style={styles.units}>
-                    <Text style={styles.unitsNum}>{s.units}</Text>
-                    <Text style={styles.unitsLabel}>units</Text>
-                  </View>
-                </View>
+          <>
+            {/* Search */}
+            <View style={styles.search}>
+              <Ionicons name="search" size={18} color={MUTED} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder="Search subject, code or instructor"
+                placeholderTextColor="#93A8C9"
+                style={styles.searchInput}
+              />
+              {query.length > 0 && (
+                <TouchableOpacity onPress={() => setQuery("")} hitSlop={10}>
+                  <Ionicons name="close-circle" size={18} color="#93A8C9" />
+                </TouchableOpacity>
+              )}
+            </View>
 
-                {open && (
-                  <View style={styles.details}>
-                    <Detail icon="person-outline" text={s.instructor} />
-                    <Detail icon="time-outline" text={s.schedule} />
-                    <Detail icon="location-outline" text={s.room} />
-                    <Detail icon="calendar-outline" text={s.semester} />
-                  </View>
-                )}
+            {/* Course filter */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              {programChips.map((p) => {
+                const active = p === program;
+                return (
+                  <TouchableOpacity
+                    key={p}
+                    activeOpacity={0.8}
+                    onPress={() => setProgram(p)}
+                    style={[styles.chip, active && styles.chipActive]}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{p}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
-                <Ionicons
-                  name={open ? "chevron-up" : "chevron-down"}
-                  size={16}
-                  color="#93A8C9"
-                  style={styles.chevron}
-                />
-              </TouchableOpacity>
-            );
-          })
+            {/* List */}
+            {filtered.length === 0 ? (
+              <View style={styles.empty}>
+                <Ionicons name="book-outline" size={36} color="#93A8C9" />
+                <Text style={styles.emptyTitle}>No subjects found</Text>
+                <Text style={styles.emptyDesc}>Try a different search or course.</Text>
+              </View>
+            ) : (
+              filtered.map((s) => {
+                const open = openId === s.id;
+                return (
+                  <TouchableOpacity
+                    key={s.id}
+                    activeOpacity={0.9}
+                    onPress={() => setOpenId(open ? null : s.id)}
+                    style={styles.card}
+                  >
+                    <View style={styles.cardTop}>
+                      <LinearGradient colors={s.colors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.icon}>
+                        <Ionicons name={s.icon} size={22} color="#FFF" />
+                      </LinearGradient>
+                      <View style={{ flex: 1, marginLeft: 14 }}>
+                        <Text style={styles.code}>{s.code}{s.program ? `  •  ${s.program}` : ""}</Text>
+                        <Text style={styles.title}>{s.title}</Text>
+                      </View>
+                      <View style={styles.units}>
+                        <Text style={styles.unitsNum}>{s.units}</Text>
+                        <Text style={styles.unitsLabel}>{s.units === 1 ? "unit" : "units"}</Text>
+                      </View>
+                    </View>
+
+                    {open && (
+                      <View style={styles.details}>
+                        {!!s.description && <Text style={styles.description}>{s.description}</Text>}
+                        {!!s.prerequisite && <Detail icon="git-branch-outline" text={`Prerequisite: ${s.prerequisite}`} />}
+                        {!!s.instructor && <Detail icon="person-outline" text={s.instructor} />}
+                        {s.schedules.map((line) => (
+                          <Detail key={line} icon="time-outline" text={line} />
+                        ))}
+                        {!!s.room && <Detail icon="location-outline" text={s.room} />}
+                        {!s.instructor && s.schedules.length === 0 && (
+                          <Detail icon="time-outline" text="No schedule yet" />
+                        )}
+                      </View>
+                    )}
+
+                    <Ionicons
+                      name={open ? "chevron-up" : "chevron-down"}
+                      size={16}
+                      color="#93A8C9"
+                      style={styles.chevron}
+                    />
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </>
         )}
       </ScrollView>
     </View>
@@ -228,6 +409,7 @@ const styles = StyleSheet.create({
   unitsLabel: { fontSize: 10, color: MUTED },
 
   details: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#E3EEFF", gap: 10 },
+  description: { fontSize: 13, lineHeight: 19, color: "#475569" },
   detailRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   detailIcon: { width: 28, height: 28, borderRadius: 10, backgroundColor: SOFT, alignItems: "center", justifyContent: "center" },
   detailText: { fontSize: 13, color: INK, flex: 1 },
@@ -235,5 +417,5 @@ const styles = StyleSheet.create({
 
   empty: { alignItems: "center", paddingVertical: 50, gap: 6 },
   emptyTitle: { fontSize: 16, fontWeight: "800", color: INK, marginTop: 6 },
-  emptyDesc: { fontSize: 13, color: MUTED },
+  emptyDesc: { fontSize: 13, color: MUTED, textAlign: "center" },
 });

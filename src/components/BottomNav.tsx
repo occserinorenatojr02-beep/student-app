@@ -11,7 +11,7 @@ const PILL_W = 46;
 const tabs = [
   { href: "/", label: "Home", icon: "home", iconOff: "home-outline" },
   { href: "/students", label: "Students", icon: "people", iconOff: "people-outline" },
-  { href: "/subject", label: "Schedule", icon: "library", iconOff: "library-outline" },
+  { href: "/subject", label: "Subjects", icon: "book", iconOff: "book-outline" },
   { href: "/profile", label: "Profile", icon: "person", iconOff: "person-outline" },
 ] as const;
 
