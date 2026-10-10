@@ -9,14 +9,14 @@ import { useProfile } from "@/lib/profileStore";
 // Programs shown on this screen, in display order
 const PROGRAM_ORDER = ["BSIT", "BSBA", "BEED"];
 
-// How many students are shown for each program
+//students shown for each program
 const STUDENTS_PER_PROGRAM = 2;
 
 type Student = {
   id: number;
   student_number: string;
   name: string;
-  section: string; // e.g. "BSIT-2A" -> program is "BSIT"
+  section: string;
 };
 
 type Grade = {
@@ -116,18 +116,17 @@ export default function Grades() {
         const res = await api.get("/students");
         const list = toArray<Student>(res.data);
 
-        // Your profile student goes first so they are always picked
+        //profile student first so they are always picked
         const me = findProfileStudent(list);
         const ordered = me ? [me, ...list.filter((s) => s.id !== me.id)] : list;
 
-        // First 2 students of each program: BSIT, then BSBA, then BEED
+        // First 2 students of each program
         students = PROGRAM_ORDER.flatMap((code) =>
           ordered.filter((s) => programOf(s) === code).slice(0, STUDENTS_PER_PROGRAM)
         );
       }
 
-      // 2. Load each student's OWN grades: GET /students/{id}/grades
-      //    (the API returns the subjects of that student's program)
+      //Load each student's OWN grades
       const results = await Promise.allSettled(
         students.map((s) => api.get(`/students/${s.id}/grades`))
       );

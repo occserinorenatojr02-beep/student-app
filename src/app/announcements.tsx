@@ -11,7 +11,7 @@ export default function Announcements() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // GET /announcements  ->  [{ id, title, message, date }, ...]
+  // GET /announcements
   const load = useCallback(async () => {
     try {
       const res = await api.get<Announcement[]>("/announcements");

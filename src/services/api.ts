@@ -2,11 +2,11 @@ import axios from "axios";
 import Constants from "expo-constants";
 
 const getBaseURL = () => {
-   // 1. If you set a URL in .env, use that (production / hosted API)
+   // Set URL in .env, use that (production / hosted API)
   if (process.env.EXPO_PUBLIC_API_URL) {
     return process.env.EXPO_PUBLIC_API_URL;
   }
-  // 2. Otherwise use the same computer that's running Expo
+  // use the same computer that's running Expo
   const host = Constants.expoConfig?.hostUri?.split(":")[0];
   return `http://${host ?? "10.213.228.16"}:8000/api`;
 };

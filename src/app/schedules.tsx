@@ -12,10 +12,6 @@ import { useProfile } from "@/lib/profileStore";
 // false -> show only the course of the student that matches your Profile
 const SHOW_ALL_COURSES = true;
 
-/* ------------------------------------------------------------------ */
-/* Types                                                               */
-/* ------------------------------------------------------------------ */
-
 // GET /programs
 type Program = {
   id: number;
@@ -45,12 +41,12 @@ type Course = {
   program_code?: string;
 };
 
-// GET /schedules?program=BSIT
+// GET /schedules
 type Schedule = {
   id: number;
   student_id?: number;
   program_code?: string;
-  schedule_type?: string; // "A" or "B"
+  schedule_type?: string;
   code?: string;
   course_code?: string;
   subject?: string;
@@ -68,7 +64,7 @@ type Schedule = {
 type ProgramSchedule = {
   program: Program;
   schedules: Schedule[];
-  failed: boolean; // true when this course's schedule could not be loaded
+  failed: boolean; 
 };
 
 type Row = {
@@ -87,24 +83,20 @@ type Row = {
   description: string;
 };
 
-// One timetable (Schedule A or B) of a course
+// One timetable schedule
 type Track = {
-  key: string; // "BSIT-A"
-  type: string; // "A" | "B"
+  key: string; 
+  type: string;
   rows: Row[];
   students: Student[];
 };
 
 type Group = {
-  key: string; // BSIT, BSBA, BEED
+  key: string; 
   name: string;
   failed: boolean;
   tracks: Track[];
 };
-
-/* ------------------------------------------------------------------ */
-/* Helpers                                                             */
-/* ------------------------------------------------------------------ */
 
 const DAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 const DAY_LETTER: Record<string, string> = {
@@ -227,10 +219,7 @@ function buildHtml(title: string, subtitle: string, rows: Row[]) {
   </html>`;
 }
 
-/* ------------------------------------------------------------------ */
-/* Screen                                                              */
-/* ------------------------------------------------------------------ */
-
+/* Screen */
 export default function Schedules() {
   const profile = useProfile();
   const [blocks, setBlocks] = useState<ProgramSchedule[]>([]);
@@ -284,7 +273,7 @@ export default function Schedules() {
         selected = me ? allPrograms.filter((p) => p.code.toUpperCase() === programCode(me)) : [];
       }
 
-      // 2) Load the schedule of EACH course: GET /schedules?program=BSIT
+      //Load the schedule of EACH course: GET /schedules?program=BSIT
       const results = await Promise.allSettled(
         selected.map((p) => api.get("/schedules", { params: { program: p.code } }))
       );
@@ -338,7 +327,7 @@ export default function Schedules() {
     return map;
   }, [courses]);
 
-  // Each course -> its timetables (Schedule A / B) -> rows + the students using it
+  // Each course -> its timetables -> rows + the students using it
   const groups = useMemo<Group[]>(() => {
     const studentById = new Map<number, Student>();
     students.forEach((s) => studentById.set(s.id, s));

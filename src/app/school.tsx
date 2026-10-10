@@ -5,9 +5,9 @@ import LoadingScreen from "../components/LoadingScreen";
 
 type School = {
   name?: string;
-  school_name?: string; // old key, still supported
+  school_name?: string;
   short_name?: string;
-  school_code?: string; // old key, still supported
+  school_code?: string;
   motto?: string;
   established?: string;
   president?: string;

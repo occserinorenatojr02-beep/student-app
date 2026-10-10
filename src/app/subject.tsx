@@ -5,9 +5,9 @@ import { Ionicons } from "@expo/vector-icons";
 import api from "../services/api";
 import LoadingScreen from "../components/LoadingScreen";
 
-/* ------------------------------------------------------------------ */
-/* Types                                                               */
-/* ------------------------------------------------------------------ */
+
+/* Types */
+
 
 type Grad = readonly [string, string];
 
@@ -42,7 +42,7 @@ type Schedule = {
   room?: string;
 };
 
-// What one subject card needs
+// Subject Cards
 type Subject = {
   id: number;
   code: string;
@@ -53,14 +53,13 @@ type Subject = {
   description: string;
   instructor: string;
   room: string;
-  schedules: string[]; // e.g. "Schedule A: Mon / Wed / Fri, 8:00 AM - 9:00 AM"
+  schedules: string[];
   icon: keyof typeof Ionicons.glyphMap;
   colors: Grad;
 };
 
-/* ------------------------------------------------------------------ */
-/* Helpers                                                             */
-/* ------------------------------------------------------------------ */
+
+/* Helpers */
 
 const PRIMARY = "#2563EB";
 const INK = "#0B2559";
@@ -78,13 +77,12 @@ const DEFAULT_STYLE = { icon: "book" as keyof typeof Ionicons.glyphMap, colors: 
 // "IT 201" and "IT201" both become "it201"
 const norm = (s?: string) => (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-// Accepts either a plain array or a { data: [...] } wrapper
+// Accepts either a plain array or a data (wrapper)
 const toArray = <T,>(value: any): T[] =>
   Array.isArray(value) ? value : Array.isArray(value?.data) ? value.data : [];
 
-/* ------------------------------------------------------------------ */
-/* Screen                                                              */
-/* ------------------------------------------------------------------ */
+
+/* Screen */
 
 export default function Subjects() {
   const [courses, setCourses] = useState<Course[]>([]);

@@ -130,7 +130,7 @@ export default function Courses() {
               activeOpacity={0.85}
               onPress={() => setOpenId(open ? null : item.id)}
             >
-              {/* Always visible: code + course name */}
+              {/* code + course name */}
               <View style={styles.topRow}>
                 <View style={styles.codePill}>
                   <Text style={styles.code}>{item.code}</Text>

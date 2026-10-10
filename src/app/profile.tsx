@@ -22,7 +22,7 @@ import type { Profile } from "../lib/profileStore";
 const BLUE = "#2563EB";
 const INK = "#1E1B3A";
 const MUTED = "#6B7280";
-const TAB_BAR_HEIGHT = 100; // adjust to match your tab bar height
+const TAB_BAR_HEIGHT = 100;
 
 // Matches the shape returned by GET /admin
 type Admin = {
@@ -34,11 +34,10 @@ type Admin = {
   email: string;
   phone: string;
   status: string;
-  access: string[]; // e.g. ["students", "grades", "schedules"]
+  access: string[];
 };
 
-// The profile store keeps the same 5 fields, so the admin is mapped onto them:
-//   studentId -> admin_number, program -> office, year -> role
+// The profile store keeps the same 5 fields, so the admin is mapped to the students
 const fields: {
   key: keyof Profile;
   label: string;
@@ -52,13 +51,12 @@ const fields: {
   { key: "email", label: "Email", editable: true, keyboard: "email-address" },
 ];
 
-// Accepts either the admin object, a { data: {...} } wrapper or a list (first admin)
+// Accepts either the admin object,
 const toAdmin = (value: any): Admin | null => {
   const item = Array.isArray(value) ? value[0] : value?.data ?? value;
   return item && item.id != null ? (item as Admin) : null;
 };
 
-// "students" -> "Students"
 const label = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function ProfileScreen() {
@@ -107,7 +105,6 @@ export default function ProfileScreen() {
           email: found.email,
         };
         setProfile(synced);
-        // Never overwrite what the user is typing
         if (!editingRef.current) setDraft(synced);
       }
     } catch (e) {
@@ -121,13 +118,12 @@ export default function ProfileScreen() {
     }
   }, []);
 
-  // Run once when the screen opens
   useEffect(() => {
     load();
   }, [load]);
 
   const onRefresh = () => {
-    if (editing) return; // don't reload while the user is editing
+    if (editing) return;
     setRefreshing(true);
     load();
   };
@@ -193,7 +189,7 @@ export default function ProfileScreen() {
 
   const shown = editing ? draft : profile;
 
-  // Extra details that only exist on the backend (read-only)
+  // Extra details that only exist on the backend
   const details: { label: string; value?: string }[] = admin
     ? [
         { label: "Status", value: admin.status },
